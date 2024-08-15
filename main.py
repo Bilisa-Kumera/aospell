@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException
-from typing import List
+from typing import List, Dict
 import fitz  # PyMuPDF
 import re
 import os
@@ -22,23 +22,34 @@ def extract_text_from_pdf(pdf_path: str) -> str:
     
     return text
 
-def preprocess_text(text: str) -> list:
-    """Preprocesses the text to extract words."""
+def preprocess_text(text: str) -> set:
+    """Preprocesses the text to extract words and store them in a set for fast lookup."""
     words = re.findall(r'\b\w+\b', text.lower())
-    return words
+    return set(words)
 
-def get_suggestions_from_text(word: str, text: str) -> list:
+def get_suggestions_from_text(word: str, text: str) -> List[str]:
     """Generates suggestions from the text based on the input word."""
     words = preprocess_text(text)
     suggestions = [w for w in words if w.startswith(word) and w != word]
     return suggestions
 
+def check_words_in_text(words: List[str], text_set: set) -> Dict[str, List[str]]:
+    """Checks which words are in the text and which are not."""
+    results = {"exist": [], "notexist": []}
+    for word in words:
+        if word.lower() in text_set:
+            results["exist"].append(word)
+        else:
+            results["notexist"].append(word)
+    return results
+
 # Path to your PDF file
-PDF_PATH = "aopdf.pdf"
+PDF_PATH = "pdf/aopdf.pdf"
 
 # Extract text from the PDF once at startup
 try:
     pdf_text = extract_text_from_pdf(PDF_PATH)
+    pdf_text_set = preprocess_text(pdf_text)  # Convert to set for fast lookup
 except FileNotFoundError as e:
     raise RuntimeError(f"PDF file not found: {e}")
 except RuntimeError as e:
@@ -54,6 +65,23 @@ async def get_suggestions(word: str):
     suggestions = get_suggestions_from_text(word, pdf_text)
     
     return suggestions
+from pydantic import BaseModel
+
+class ParagraphRequest(BaseModel):
+    paragraph: str
+
+@app.post("/check_paragraph", response_model=Dict[str, List[str]])
+async def check_paragraph(request: ParagraphRequest):
+    """Checks each word in the paragraph and provides which words exist in the PDF text and which do not."""
+    paragraph = request.paragraph
+    if not paragraph:
+        raise HTTPException(status_code=400, detail="Paragraph body is required")
+
+    words = re.findall(r'\b\w+\b', paragraph.lower())
+    results = check_words_in_text(words, pdf_text_set)
+    
+    return results
+
 
 if __name__ == '__main__':
     import uvicorn
