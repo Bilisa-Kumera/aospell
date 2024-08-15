@@ -34,7 +34,7 @@ def get_suggestions_from_text(word: str, text: str) -> list:
     return suggestions
 
 # Path to your PDF file
-PDF_PATH = "pdf/aopdf.pdf"
+PDF_PATH = "aopdf.pdf"
 
 # Extract text from the PDF once at startup
 try:
