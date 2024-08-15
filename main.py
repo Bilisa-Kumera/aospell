@@ -44,7 +44,7 @@ def check_words_in_text(words: List[str], text_set: set) -> Dict[str, List[str]]
     return results
 
 # Path to your PDF file
-PDF_PATH = "pdf/aopdf.pdf"
+PDF_PATH = "aopdf.pdf"
 
 # Extract text from the PDF once at startup
 try:
