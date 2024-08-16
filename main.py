@@ -27,7 +27,6 @@ PDF_PATH = "aopdf.pdf"
 
 # Initialize SQLite database
 DATABASE_PATH = "user_inputs.db"
-init_db()
 
 def init_db():
     """Initializes the database with a table for storing user inputs and outputs."""
@@ -42,6 +41,7 @@ def init_db():
     ''')
     conn.commit()
     conn.close()
+init_db()
 
 def store_user_input(word: str, next_word: str):
     """Stores the user's input and the next word in the database."""
