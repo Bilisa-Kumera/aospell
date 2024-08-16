@@ -1,2 +1,3 @@
 fastapi[all]
 PyMuPDF
+scikit-learn
