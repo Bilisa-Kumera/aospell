@@ -1,17 +1,14 @@
+import os
 from fastapi import FastAPI, HTTPException, Query
 from typing import List, Dict
 import fitz  # PyMuPDF
 import re
-import os
 from collections import Counter
 from pydantic import BaseModel
 import sqlite3
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.ensemble import RandomForestClassifier
 import numpy as np
-from pydantic import BaseModel
-
-
 
 app = FastAPI()
 
@@ -22,25 +19,23 @@ class UserInputRequest(BaseModel):
 class ParagraphRequest(BaseModel):
     paragraph: str
 
-# Path to your PDF file
 PDF_PATH = "aopdf.pdf"
-
-# Initialize SQLite database
 DATABASE_PATH = "user_inputs.db"
 
 def init_db():
     """Initializes the database with a table for storing user inputs and outputs."""
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS user_input(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            word TEXT NOT NULL,
-            next_word TEXT NOT NULL
-        )
-    ''')
-    conn.commit()
-    conn.close()
+    if not os.path.exists(DATABASE_PATH):
+        conn = sqlite3.connect(DATABASE_PATH)
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_input(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                word TEXT NOT NULL,
+                next_word TEXT NOT NULL
+            )
+        ''')
+        conn.commit()
+        conn.close()
 
 def store_user_input(word: str, next_word: str):
     """Stores the user's input and the next word in the database."""
@@ -99,7 +94,6 @@ def check_word_matches(word: str, text_set: set) -> List[str]:
         if similarity > 50:  # Only consider similarities greater than 50%
             matching_words.append(text_word)
     
-    # Remove duplicates and sort words
     matching_words = list(set(matching_words))
     matching_words.sort()
     
@@ -130,18 +124,14 @@ def find_next_words(word: str, text: str) -> List[str]:
     if not matches:
         raise HTTPException(status_code=404, detail=f"No words found after '{word}'")
     
-    # Count the frequency of each next word
     word_counts = Counter(matches)
-    
-    # Sort words by frequency in descending order
     sorted_words = [word for word, count in word_counts.most_common()]
     
     return sorted_words
 
-# Extract text from the PDF once at startup
 try:
     pdf_text = extract_text_from_pdf(PDF_PATH)
-    pdf_text_set = preprocess_text(pdf_text)  # Convert to set for fast lookup
+    pdf_text_set = preprocess_text(pdf_text)
 except FileNotFoundError as e:
     raise RuntimeError(f"PDF file not found: {e}")
 except RuntimeError as e:
@@ -157,21 +147,18 @@ def train_ml_model():
     if not user_inputs:
         return None, None
 
-    # Prepare the data
     X = [ui['word'] for ui in user_inputs]
     y = [ui['next_word'] for ui in user_inputs]
 
-    # Vectorize the input words with bigrams
     vectorizer = CountVectorizer(ngram_range=(1, 2)).fit(X)
     X_vectorized = vectorizer.transform(X)
 
-    # Train a random forest classifier model
     model = RandomForestClassifier(n_estimators=100)
     model.fit(X_vectorized, y)
 
     return model, vectorizer
 
-# Train the model at startup
+init_db()
 model, vectorizer = train_ml_model()
 
 @app.get("/suggestions", response_model=List[str])
@@ -180,13 +167,9 @@ async def get_suggestions(word: str):
     if not word:
         raise HTTPException(status_code=400, detail="Word query parameter is required")
 
-    # Get suggestions from the extracted text
     suggestions = get_suggestions_from_text(word, pdf_text)
     
     return suggestions
-
-class ParagraphRequest(BaseModel):
-    paragraph: str
 
 @app.post("/check_paragraph", response_model=Dict[str, List[str]])
 async def check_paragraph(request: ParagraphRequest):
@@ -203,11 +186,10 @@ async def check_paragraph(request: ParagraphRequest):
 @app.post("/check_word_matches", response_model=List[str])
 async def check_word_matches_endpoint(request: ParagraphRequest):
     """Checks each word for matching characters with words in the PDF text and returns similar words."""
-    word = request.paragraph.strip().lower()  # Treat the input word as the only word
+    word = request.paragraph.strip().lower()
     if not word:
         raise HTTPException(status_code=400, detail="Word body is required")
 
-    # Calculate similarity for each word in the PDF text
     results = check_word_matches(word, pdf_text_set)
 
     return results
@@ -218,10 +200,10 @@ async def find_next_word(word: str):
     if not word:
         raise HTTPException(status_code=400, detail="Word query parameter is required")
 
-    # Find next words from the extracted text
     next_words = find_next_words(word, pdf_text)
     
     return next_words
+
 @app.post("/store_user_input")
 async def store_user_input_endpoint(request: ParagraphRequest):
     """Stores word pairs from a paragraph and retrains the ML model."""
@@ -235,48 +217,12 @@ async def store_user_input_endpoint(request: ParagraphRequest):
     if len(words) < 2:
         raise HTTPException(status_code=400, detail="Paragraph must contain at least two words")
     
-    # Store each word and its following word
     for i in range(len(words) - 1):
         word = words[i]
         next_word = words[i + 1]
         store_user_input(word, next_word)
-    
-    # Retrain the ML model with the new data
+
     global model, vectorizer
     model, vectorizer = train_ml_model()
     
-    return {"message": "User inputs stored and model retrained successfully"}
-
-    
-    return {"message": "User input stored successfully"}
-@app.get("/predict_next_word", response_model=List[str])
-async def predict_next_word(word: str):
-    """Predicts the next word based on the input word using the trained ML model."""
-    if not word:
-        raise HTTPException(status_code=400, detail="Word query parameter is required")
-
-    if model is None or vectorizer is None:
-        raise HTTPException(status_code=500, detail="Model has not been trained yet")
-
-    # Check if the word exists in the training data
-    if word not in [ui['word'] for ui in retrieve_user_inputs()]:
-        return ["Learning required: The word is not in the training data."]
-
-    X_vectorized = vectorizer.transform([word])
-
-    # Get prediction probabilities for all classes
-    prediction_probs = model.predict_proba(X_vectorized)
-
-    # Get top predictions and their probabilities
-    top_indices = prediction_probs[0].argsort()[::-1]
-    top_predictions = [model.classes_[i] for i in top_indices if prediction_probs[0][i] > 0.01]  # Filter out very low probabilities
-
-    # Sort predictions by frequency from training data
-    word_counts = Counter(ui['next_word'] for ui in retrieve_user_inputs() if ui['word'] == word)
-    sorted_predictions = sorted(top_predictions, key=lambda w: word_counts[w], reverse=True)
-
-    return sorted_predictions
-
-
-# Initialize the database
-init_db()
+    return {"message": "User input stored successfully and model retrained."}
