@@ -27,6 +27,7 @@ PDF_PATH = "aopdf.pdf"
 
 # Initialize SQLite database
 DATABASE_PATH = "user_inputs.db"
+init_db()
 
 def init_db():
     """Initializes the database with a table for storing user inputs and outputs."""
@@ -280,4 +281,3 @@ async def predict_next_word(word: str):
 
 
 # Initialize the database
-init_db()
