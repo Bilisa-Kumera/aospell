@@ -224,5 +224,35 @@ async def store_user_input_endpoint(request: ParagraphRequest):
 
     global model, vectorizer
     model, vectorizer = train_ml_model()
+
+    
+@app.get("/predict_next_word", response_model=List[str])
+async def predict_next_word(word: str):
+    """Predicts the next word based on the input word using the trained ML model."""
+    if not word:
+        raise HTTPException(status_code=400, detail="Word query parameter is required")
+
+    if model is None or vectorizer is None:
+        raise HTTPException(status_code=500, detail="Model has not been trained yet")
+
+    # Check if the word exists in the training data
+    if word not in [ui['word'] for ui in retrieve_user_inputs()]:
+        return ["Learning required: The word is not in the training data."]
+
+    X_vectorized = vectorizer.transform([word])
+
+    # Get prediction probabilities for all classes
+    prediction_probs = model.predict_proba(X_vectorized)
+
+    # Get top predictions and their probabilities
+    top_indices = prediction_probs[0].argsort()[::-1]
+    top_predictions = [model.classes_[i] for i in top_indices if prediction_probs[0][i] > 0.01]  # Filter out very low probabilities
+
+    # Sort predictions by frequency from training data
+    word_counts = Counter(ui['next_word'] for ui in retrieve_user_inputs() if ui['word'] == word)
+    sorted_predictions = sorted(top_predictions, key=lambda w: word_counts[w], reverse=True)
+
+    return sorted_predictions
+
     
     return {"message": "User input stored successfully and model retrained."}
